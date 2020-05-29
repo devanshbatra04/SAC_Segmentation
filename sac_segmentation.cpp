@@ -92,6 +92,27 @@ class SACPlaneModel : public SACModel {
 
         }
 
+        SACPlaneModel(SACModel model) {
+            this->ModelCoefficients = model.ModelCoefficients;
+            this->size = Size2d(2.0, 2.0);
+            cout << model.ModelCoefficients.size();
+            // Assign normal vector
+            // for (unsigned i = 0; i < 3; i++) normal[i] = model.ModelCoefficients[i];
+            // if (model.ModelCoefficients[2] != 0) {
+            //     center.x = 0;
+            //     center.y = 0;
+            //     center.z = -model.ModelCoefficients[3] / model.ModelCoefficients[2];
+            // } else if (model.ModelCoefficients[1] != 0) {
+            //     center.x = 0;
+            //     center.y = -model.ModelCoefficients[3] / model.ModelCoefficients[1];
+            //     center.z = 0;
+            // } else if (model.ModelCoefficients[0] != 0) {
+            //     center.x = -model.ModelCoefficients[3] / model.ModelCoefficients[0];
+            //     center.y = 0;
+            //     center.z = 0;
+            // }
+        }
+
         SACPlaneModel(Vec4d coefficients, Point3d center, Size2d size=Size2d(2.0, 2.0)) {
             this->ModelCoefficients.reserve(4);
             for (int i = 0; i < 4; i++) {
@@ -168,14 +189,13 @@ class SACPlaneModel : public SACModel {
 
 
             Vec4d NormalisedCoefficients (ModelCoefficients[0]/magnitude_abc, ModelCoefficients[1]/magnitude_abc, ModelCoefficients[2]/magnitude_abc, ModelCoefficients[3]/magnitude_abc);
-
             double fitness = 0;
             double rmse = 0;
             for (int i = 0; i < num_points; i++) {
                 unsigned ind = indices[i];
                 Vec4d point4d (points[ind][0], points[ind][1], points[ind][2], 1);
                 double distanceFromPlane = point4d.dot(NormalisedCoefficients);
-                if (distanceFromPlane > threshold) continue;
+                if (abs(distanceFromPlane) > threshold) continue;
                 inliers.emplace_back(ind);
 
                 fitness+=1;
@@ -257,14 +277,13 @@ class SACModelFitting {
                     // Compare fitness first.
                     if (bestResult.first < result.first || (bestResult.first == result.first && bestResult.second > result.second )) {
                         bestResult = result;
-                        bestModel = planeModel;
+                        bestModel.ModelCoefficients = planeModel.ModelCoefficients;
                         inliers_indices = current_model_inliers;
                     }
                     
-                    inliers.push_back(inliers_indices);
-                    model_instances.push_back(bestModel);
-                    
                 }
+                inliers.push_back(inliers_indices);
+                model_instances.push_back(bestModel);
             }    
         }
         

@@ -12,7 +12,8 @@ using namespace cv;
 using namespace std;
 
 int main() {
-    Mat cloud = cv::viz::readCloud("/home/groot/GSoC20/data/CobbleStones.obj");
+    Mat cloud = cv::viz::readCloud("/home/groot/GSoC20/data/living-room.obj");
+    // Mat cloud = cv::viz::readCloud("/home/groot/GSoC20/data/CobbleStones.obj");
     cv::SACSegmentation::SACModelFitting planar_segmentation(cloud);
     // cout << cloud.type();
     /// Adds cloud to window
@@ -21,10 +22,11 @@ int main() {
     window.showWidget("cloud 1", cloud_widget1);
 
 
-    planar_segmentation.threshold = 0.5;
-    planar_segmentation.max_iters=1;
+    planar_segmentation.threshold = 0.01;
+    planar_segmentation.max_iters=1000;
     planar_segmentation.fit_once();
 
+    
     // / Adds segmented plane to window
 
     const Vec3f* points = cloud.ptr<Vec3f>(0);
@@ -36,7 +38,11 @@ int main() {
     viz::Viz3d fitted("fitted cloud");
     viz::WCloud cloud_widget2(fit_cloud);
     fitted.showWidget("cloud 1", cloud_widget2);
-   
+    
+    cv::SACSegmentation::SACPlaneModel SACplane (planar_segmentation.model_instances.at(0));
+    // SACplane.addToWindow(window);
+    // viz::WPlane widget = SACplane.WindowWidget(window);
+
     window.spin();
     fitted.spin();
     waitKey(1);
