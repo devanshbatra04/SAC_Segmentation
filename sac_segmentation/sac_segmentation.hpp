@@ -5,8 +5,6 @@
 #include <opencv2/highgui.hpp>
 #include <opencv2/viz/widgets.hpp>
 #include <cassert>
-#include "pointset_registrators/precomp.hpp"
-#include "pointset_registrators/registrators.hpp"
 #define PLANE_MODEL 1
 #define SAC_METHOD_RANSAC 1
 
@@ -66,7 +64,6 @@ Vec4d getPlaneFromPoints(const Vec3f* &points,
 }
 
 
-
 class SACModel {
     public:
         vector<double> ModelCoefficients;
@@ -86,7 +83,7 @@ class SACPlaneModel : public SACModel {
     private:
         Point3d center;
         Vec3d normal;
-        Size2d size;
+        Size2d size = Size2d(2.0, 2.0);
     public:
         SACPlaneModel() {
 
@@ -94,29 +91,29 @@ class SACPlaneModel : public SACModel {
 
         SACPlaneModel(SACModel model) {
             this->ModelCoefficients = model.ModelCoefficients;
-            this->size = Size2d(2.0, 2.0);
+            // this->size = Size2d(1.0, 1.0);
             cout << model.ModelCoefficients.size();
             // Assign normal vector
-            // for (unsigned i = 0; i < 3; i++) normal[i] = model.ModelCoefficients[i];
-            // if (model.ModelCoefficients[2] != 0) {
-            //     center.x = 0;
-            //     center.y = 0;
-            //     center.z = -model.ModelCoefficients[3] / model.ModelCoefficients[2];
-            // } else if (model.ModelCoefficients[1] != 0) {
-            //     center.x = 0;
-            //     center.y = -model.ModelCoefficients[3] / model.ModelCoefficients[1];
-            //     center.z = 0;
-            // } else if (model.ModelCoefficients[0] != 0) {
-            //     center.x = -model.ModelCoefficients[3] / model.ModelCoefficients[0];
-            //     center.y = 0;
-            //     center.z = 0;
-            // }
+            for (unsigned i = 0; i < 3; i++) normal[i] = model.ModelCoefficients[i];
+            if (model.ModelCoefficients[2] != 0) {
+                center.x = 0;
+                center.y = 0;
+                center.z = -model.ModelCoefficients[3] / model.ModelCoefficients[2];
+            } else if (model.ModelCoefficients[1] != 0) {
+                center.x = 0;
+                center.y = -model.ModelCoefficients[3] / model.ModelCoefficients[1];
+                center.z = 0;
+            } else if (model.ModelCoefficients[0] != 0) {
+                center.x = -model.ModelCoefficients[3] / model.ModelCoefficients[0];
+                center.y = 0;
+                center.z = 0;
+            }
         }
 
         SACPlaneModel(Vec4d coefficients, Point3d center, Size2d size=Size2d(2.0, 2.0)) {
             this->ModelCoefficients.reserve(4);
             for (int i = 0; i < 4; i++) {
-                this->ModelCoefficients[i] = coefficients[i];
+                this->ModelCoefficients.push_back(coefficients[i]);
             }
             this->size = size;
             
@@ -131,7 +128,7 @@ class SACPlaneModel : public SACModel {
         SACPlaneModel(Vec4d coefficients, Size2d size=Size2d(2.0, 2.0)) {
             this->ModelCoefficients.reserve(4);
             for (int i = 0; i < 4; i++) {
-                this->ModelCoefficients[i] = coefficients[i];
+                this->ModelCoefficients.push_back(coefficients[i]);
             }
             this->size = size;
             
@@ -168,11 +165,12 @@ class SACPlaneModel : public SACModel {
             center.z = 0;
         }
         void addToWindow(viz::Viz3d & window) {
-            viz::WPlane plane(this->center, this->normal, Vec3d(1, 1, 1), this->size, viz::Color::green());
+            viz::WPlane plane(this->center, this->normal, Vec3d(1, 0, 0), this->size, viz::Color::green());
             window.showWidget("plane", plane);
         }
-        viz::WPlane WindowWidget (viz::Viz3d & window) {
-            return viz::WPlane (this->center, this->normal, Vec3d(1, 1, 1), this->size, viz::Color::green());
+        viz::WPlane WindowWidget () {
+            cout << this->size;
+            return viz::WPlane (this->center, this->normal, Vec3d(1, 0, 0), this->size, viz::Color::green());
         }
 
         pair<double, double> getInliers(Mat cloud, vector<unsigned> indices, const double threshold, vector<unsigned>& inliers) {
@@ -271,7 +269,6 @@ class SACModelFitting {
                     Point3d center;
                     Vec4d coefficients = getPlaneFromPoints(points, current_model_inliers, center);  
                     cv::SACSegmentation::SACPlaneModel planeModel (coefficients, center);
-
                     pair<double, double> result = planeModel.getInliers(cloud, indices, threshold, current_model_inliers);
 
                     // Compare fitness first.
