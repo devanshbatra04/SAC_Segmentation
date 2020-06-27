@@ -4,8 +4,11 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/highgui.hpp>
 #include <opencv2/viz/widgets.hpp>
+#include <opencv2/surface_matching/ppf_helpers.hpp>
 #include <cassert>
 #define PLANE_MODEL 1
+#define SPHERE_MODEL 2
+#define CYLLINDER_MODEL 3
 #define SAC_METHOD_RANSAC 1
 
 using namespace cv;
@@ -13,6 +16,80 @@ using namespace std;
 
 namespace cv {
 namespace SACSegmentation {
+
+bool getSphereFromPoints(const Vec3f* &points, const std::vector<unsigned> &inliers, Point3d& center, double& radius) {
+    // assert that size of points is 3.
+    Mat temp(5,5,CV_32FC1);
+    // Vec4f temp;
+    for(int i = 0; i < 4; i++)
+    {
+        unsigned point_idx = inliers[i];
+        float* tempi = temp.ptr<float>(i);
+        for(int j = 0; j < 3; j++) {
+            tempi[j] = (float) points[point_idx][j];
+        }
+        tempi[3] = 1;
+    }
+    double m11 = determinant(temp);
+    if (m11 == 0) return false; // no sphere exists
+
+    for(int i = 0; i < 4; i++)
+    {
+        unsigned point_idx = inliers[i];
+        float* tempi = temp.ptr<float>(i);
+        
+        tempi[0] = (float) points[point_idx][0] * (float) points[point_idx][0]
+                    + (float) points[point_idx][1] * (float) points[point_idx][1]
+                    + (float) points[point_idx][2] * (float) points[point_idx][2];
+    
+    }
+    double m12 = determinant(temp);
+    
+    for(int i = 0; i < 4; i++)
+    {
+        unsigned point_idx = inliers[i];
+        float* tempi = temp.ptr<float>(i);
+        
+        tempi[1] = tempi[0];
+        tempi[0] = (float) points[point_idx][0];
+    
+    }
+    double m13 = determinant(temp);
+
+    for(int i = 0; i < 4; i++)
+    {
+        unsigned point_idx = inliers[i];
+        float* tempi = temp.ptr<float>(i);
+        
+        tempi[2] = tempi[1];
+        tempi[1] = (float) points[point_idx][1];
+    
+    }
+    double m14 = determinant(temp);
+
+    for(int i = 0; i < 4; i++)
+    {
+        unsigned point_idx = inliers[i];
+        float* tempi = temp.ptr<float>(i);
+        
+        tempi[0] = tempi[2];
+        tempi[1] = (float) points[point_idx][0];
+        tempi[2] = (float) points[point_idx][1];
+        tempi[3] = (float) points[point_idx][2];
+    }
+    double m15 = determinant(temp);
+
+    center.x = 0.5 * m12 / m11;
+    center.y = 0.5 * m13 / m11;
+    center.z = 0.5 * m14 / m11;
+    // Radius
+    radius = std::sqrt (center.x * center.x +
+                                        center.y * center.y +
+                                        center.z * center.z - m15 / m11);
+
+  return (true);
+
+}
 
 Vec4d getPlaneFromPoints(const Vec3f* &points,
                                    const std::vector<unsigned> &inliers, Point3d& center) {
@@ -94,6 +171,7 @@ class SACPlaneModel : public SACModel {
             // this->size = Size2d(1.0, 1.0);
             cout << model.ModelCoefficients.size();
             // Assign normal vector
+
             for (unsigned i = 0; i < 3; i++) normal[i] = model.ModelCoefficients[i];
             if (model.ModelCoefficients[2] != 0) {
                 center.x = 0;
@@ -165,11 +243,16 @@ class SACPlaneModel : public SACModel {
             center.z = 0;
         }
         void addToWindow(viz::Viz3d & window) {
+            cout << this->size;
+            cout << this->normal;
+            cout << this -> center;
             viz::WPlane plane(this->center, this->normal, Vec3d(1, 0, 0), this->size, viz::Color::green());
-            window.showWidget("plane", plane);
+            window.showWidget("planeD", plane);
         }
         viz::WPlane WindowWidget () {
             cout << this->size;
+            cout << this->normal;
+            cout << this -> center;
             return viz::WPlane (this->center, this->normal, Vec3d(1, 0, 0), this->size, viz::Color::green());
         }
 
@@ -216,18 +299,105 @@ class SACPlaneModel : public SACModel {
         }
 };
 
+class SACSphereModel : public SACModel {
+    // private:
+    public:
+        Point3d center;
+        double radius;
+    // public:
+        SACSphereModel() {
+            center.x = 0;
+            center.y = 0;
+            center.z = 0;
+            radius = 20;
+        }
+
+        SACSphereModel(SACModel model) {
+
+        }
+
+        SACSphereModel(Point3d center, float radius) {
+            this -> center = center;
+            this -> radius = radius;
+        }
+        
+        SACSphereModel(Vec4d coefficients, Size2d size=Size2d(2.0, 2.0)) {
+            this->ModelCoefficients.reserve(4);
+            for (int i = 0; i < 4; i++) {
+                this->ModelCoefficients.push_back(coefficients[i]);
+            }
+            this -> center = Point3d(coefficients[0], coefficients[1], coefficients[2]);
+            this -> radius = coefficients[3];
+        }
+
+        SACSphereModel(vector<double> coefficients, Size2d size=Size2d(2.0, 2.0)) {
+            assert(coefficients.size() == 4);
+            this->ModelCoefficients = coefficients;
+            this -> center = Point3d(coefficients[0], coefficients[1], coefficients[2]);
+            this -> radius = coefficients[3];
+        }
+        void addToWindow(viz::Viz3d & window) {
+            viz::WSphere sphere(this->center, this->radius, 10, viz::Color::green());
+            window.showWidget("sphere", sphere);
+        }
+
+        double euclideanDist(Point3d& p, Point3d& q) {
+            Point3d diff = p - q;
+            return cv::sqrt(diff.x*diff.x + diff.y*diff.y + diff.z*diff.z);
+        }
+
+        pair<double, double> getInliers(Mat cloud, vector<unsigned> indices, const double threshold, vector<unsigned>& inliers) {
+            pair<double, double> result;
+            inliers.clear();
+            const Vec3f* points = cloud.ptr<Vec3f>(0);
+            const unsigned num_points = indices.size();
+
+            double fitness = 0;
+            double rmse = 0;
+            if(!isnan(radius)) { // radius may come out to be nan if selected points form a plane
+                for (int i = 0; i < num_points; i++) {
+                    unsigned ind = indices[i];
+                    Point3d pt (points[ind][0], points[ind][1], points[ind][2]);
+                    double distanceFromCenter = euclideanDist(pt, center);
+                    
+                    double distanceFromSurface = distanceFromCenter - radius;
+                    if (distanceFromSurface > threshold) continue;
+                    inliers.emplace_back(ind);
+                    
+                    fitness+=1;
+                    rmse += max(0., distanceFromSurface);
+                }
+            }
+            
+
+            unsigned num_inliers = fitness;
+            if (num_inliers == 0) {
+                result.first = 0;
+                result.second = 0;
+            } else {
+                rmse /= num_inliers; 
+                fitness /= num_points;
+                if (fitness == 1) cout << radius << " ";
+                result.first = fitness;
+                result.second = rmse;
+            }
+
+            return result;
+        }
+};
+
 class SACModelFitting {
     public:
         int model_type;
         int method_type;
         double threshold;
-        int max_iters;
+        long unsigned max_iters;
         // double _confidence=0.99;
         cv::Mat remainingCloud;
         vector<vector<unsigned>> inliers;
         vector<SACModel> model_instances;
         Mat cloud;
-
+        // viz::Viz3d window;
         SACModelFitting (Mat cloud, int model_type = PLANE_MODEL, int method_type = SAC_METHOD_RANSAC, double threshold = 20,int max_iters = 1000)
             :cloud(cloud), model_type(model_type), method_type(method_type), threshold(threshold), max_iters(max_iters) {}
 
@@ -235,7 +405,7 @@ class SACModelFitting {
             :model_type(model_type), method_type(method_type), threshold(threshold), max_iters(max_iters) {}
         
         // Get one model (plane), this function would call RANSAC on the given set of points and get the biggest model (plane).       
-        void fit_once() {
+        SACSphereModel fit_once() {
 
             // creates an array of indices for the points in the point cloud which will be appended as masks to denote inliers and outliers.
             const Vec3f* points = cloud.ptr<Vec3f>(0);
@@ -245,13 +415,13 @@ class SACModelFitting {
 
 
             vector<unsigned> inliers_indices;
-            const unsigned num_rnd_model_points = 3;
             
             // Initialize the best plane model.
             SACModel bestModel;
             pair<double, double> bestResult(0, 0);
                         
             if (model_type == PLANE_MODEL) {
+                const unsigned num_rnd_model_points = 3;
                 RNG rng((uint64)-1);
                 for (unsigned i = 0; i < max_iters; ++i) {
                     vector<unsigned> current_model_inliers;
@@ -281,7 +451,54 @@ class SACModelFitting {
                 }
                 inliers.push_back(inliers_indices);
                 model_instances.push_back(bestModel);
-            }    
+            }
+            SACSphereModel toreturn;
+            if (model_type == SPHERE_MODEL) {
+                RNG rng((uint64)-1);
+                const unsigned num_rnd_model_points = 4;
+                double minr = 1000000000;
+                for (unsigned i = 0; i < max_iters; ++i) {
+                    vector<unsigned> current_model_inliers;
+                    SACModel model;
+
+                    for (int i = 0; i < num_rnd_model_points; ++i) {
+                        std::swap(indices[i], indices[rng.uniform(0, num_points)]);
+                    }
+
+                    for (unsigned i = 0; i < num_rnd_model_points; i++) {
+                        unsigned idx = indices[i];
+                        // cout << idx << " ";
+                        current_model_inliers.emplace_back(idx);
+                    }
+
+                    // cout << endl << endl;
+
+                    Point3d center;
+                    double radius;
+                    
+                    
+                    getSphereFromPoints(points, current_model_inliers, center, radius);  
+                    cv::SACSegmentation::SACSphereModel sphereModel (center, radius);
+
+                    pair<double, double> result = sphereModel.getInliers(cloud, indices, threshold, current_model_inliers);
+
+                    // Compare fitness first.
+                    if (bestResult.first < result.first || (bestResult.first == result.first && bestResult.second > result.second) 
+                        || (bestResult.first == result.first && sphereModel.radius < toreturn.radius)) {
+                        bestResult = result;
+                        bestModel.ModelCoefficients = sphereModel.ModelCoefficients;
+                        inliers_indices = current_model_inliers;
+                        toreturn = sphereModel; // remove this after enabling ModelCofficients
+                    }
+                    
+                }
+                
+                inliers.push_back(inliers_indices);
+                model_instances.push_back(bestModel);
+                cout << bestResult.first * indices.size() << " out of " << indices.size() << endl;
+                
+            }
+            return toreturn;
         }
         
         
