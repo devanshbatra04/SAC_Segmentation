@@ -167,9 +167,9 @@ class SACPlaneModel : public SACModel {
         }
 
         SACPlaneModel(SACModel model) {
+            this->ModelCoefficients.reserve(4);
             this->ModelCoefficients = model.ModelCoefficients;
-            // this->size = Size2d(1.0, 1.0);
-            cout << model.ModelCoefficients.size();
+            
             // Assign normal vector
 
             for (unsigned i = 0; i < 3; i++) normal[i] = model.ModelCoefficients[i];
@@ -243,16 +243,10 @@ class SACPlaneModel : public SACModel {
             center.z = 0;
         }
         void addToWindow(viz::Viz3d & window) {
-            cout << this->size;
-            cout << this->normal;
-            cout << this -> center;
             viz::WPlane plane(this->center, this->normal, Vec3d(1, 0, 0), this->size, viz::Color::green());
             window.showWidget("planeD", plane);
         }
         viz::WPlane WindowWidget () {
-            cout << this->size;
-            cout << this->normal;
-            cout << this -> center;
             return viz::WPlane (this->center, this->normal, Vec3d(1, 0, 0), this->size, viz::Color::green());
         }
 
@@ -312,16 +306,33 @@ class SACSphereModel : public SACModel {
             radius = 20;
         }
 
-        SACSphereModel(SACModel model) {
-
-        }
-
-        SACSphereModel(Point3d center, float radius) {
+        SACSphereModel(Point3d center, double radius) {
             this -> center = center;
             this -> radius = radius;
+
+            this->ModelCoefficients.reserve(4);
+            this -> ModelCoefficients.push_back(center.x);
+            this -> ModelCoefficients.push_back(center.y);
+            this -> ModelCoefficients.push_back(center.z);
+
+            this -> ModelCoefficients.push_back(radius);            
         }
+
+        SACSphereModel(SACModel model) {
+            this->ModelCoefficients.reserve(4);
+            this->ModelCoefficients = model.ModelCoefficients;
+            
+            // Assign normal vector
+
+            center.x = model.ModelCoefficients [0];
+            center.y = model.ModelCoefficients [1];
+            center.y = model.ModelCoefficients [2];
+
+            radius = ModelCoefficients [3];
+        }
+
         
-        SACSphereModel(Vec4d coefficients, Size2d size=Size2d(2.0, 2.0)) {
+        SACSphereModel(Vec4d coefficients) {
             this->ModelCoefficients.reserve(4);
             for (int i = 0; i < 4; i++) {
                 this->ModelCoefficients.push_back(coefficients[i]);
@@ -330,7 +341,7 @@ class SACSphereModel : public SACModel {
             this -> radius = coefficients[3];
         }
 
-        SACSphereModel(vector<double> coefficients, Size2d size=Size2d(2.0, 2.0)) {
+        SACSphereModel(vector<double> coefficients) {
             assert(coefficients.size() == 4);
             this->ModelCoefficients = coefficients;
             this -> center = Point3d(coefficients[0], coefficients[1], coefficients[2]);
@@ -377,7 +388,6 @@ class SACSphereModel : public SACModel {
             } else {
                 rmse /= num_inliers; 
                 fitness /= num_points;
-                if (fitness == 1) cout << radius << " ";
                 result.first = fitness;
                 result.second = rmse;
             }
@@ -405,7 +415,7 @@ class SACModelFitting {
             :model_type(model_type), method_type(method_type), threshold(threshold), max_iters(max_iters) {}
         
         // Get one model (plane), this function would call RANSAC on the given set of points and get the biggest model (plane).       
-        SACSphereModel fit_once() {
+        void fit_once() {
 
             // creates an array of indices for the points in the point cloud which will be appended as masks to denote inliers and outliers.
             const Vec3f* points = cloud.ptr<Vec3f>(0);
@@ -452,11 +462,12 @@ class SACModelFitting {
                 inliers.push_back(inliers_indices);
                 model_instances.push_back(bestModel);
             }
-            SACSphereModel toreturn;
+
             if (model_type == SPHERE_MODEL) {
                 RNG rng((uint64)-1);
                 const unsigned num_rnd_model_points = 4;
-                double minr = 1000000000;
+                double minr = 10000000;
+                double bestRadius;
                 for (unsigned i = 0; i < max_iters; ++i) {
                     vector<unsigned> current_model_inliers;
                     SACModel model;
@@ -467,38 +478,31 @@ class SACModelFitting {
 
                     for (unsigned i = 0; i < num_rnd_model_points; i++) {
                         unsigned idx = indices[i];
-                        // cout << idx << " ";
                         current_model_inliers.emplace_back(idx);
                     }
 
-                    // cout << endl << endl;
-
                     Point3d center;
                     double radius;
-                    
-                    
+                
                     getSphereFromPoints(points, current_model_inliers, center, radius);  
                     cv::SACSegmentation::SACSphereModel sphereModel (center, radius);
-
                     pair<double, double> result = sphereModel.getInliers(cloud, indices, threshold, current_model_inliers);
-
                     // Compare fitness first.
                     if (bestResult.first < result.first || (bestResult.first == result.first && bestResult.second > result.second) 
-                        || (bestResult.first == result.first && sphereModel.radius < toreturn.radius)) {
+                        || (bestResult.first == result.first)) {
+
+                        if (bestResult.first == result.first && bestModel.ModelCoefficients.size() == 4 && sphereModel.radius > bestRadius) continue;
                         bestResult = result;
                         bestModel.ModelCoefficients = sphereModel.ModelCoefficients;
+                        bestModel.ModelCoefficients = sphereModel.ModelCoefficients;
                         inliers_indices = current_model_inliers;
-                        toreturn = sphereModel; // remove this after enabling ModelCofficients
                     }
                     
-                }
-                
+                }                
                 inliers.push_back(inliers_indices);
                 model_instances.push_back(bestModel);
-                cout << bestResult.first * indices.size() << " out of " << indices.size() << endl;
-                
             }
-            return toreturn;
+            // return toreturn;
         }
         
         
